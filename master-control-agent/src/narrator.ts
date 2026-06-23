@@ -14,11 +14,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { evaluate, type NtfyAlert } from "./gate.js";
-import { pollAll } from "./ntfy.js";
+import { pollAll, TOPICS } from "./ntfy.js";
 import { lookup, isRealThreat } from "./greynoise.js";
 import { phrase } from "./phrase.js";
 import { speak } from "./codetalker.js";
 import { recordNarration } from "./record.js";
+import { seedControl, pollControl, type McStatus } from "./control.js";
 
 const SEEN_PATH = process.env.MC_SEEN_PATH ?? "/opt/data/mc-seen.json";
 const POLL_SINCE = process.env.MC_POLL_SINCE ?? "5m";
@@ -118,13 +119,24 @@ export async function daemon(): Promise<void> {
   const seen = loadSeen();
   for (const a of await pollAll(POLL_SINCE).catch(() => [] as NtfyAlert[])) seen.add(a.id);
   saveSeen(seen);
+  await seedControl(); // don't replay a backlog of old directives on restart
   log(`Master Control narrator online. Interval ${intervalMs}ms.`);
+  let last: TickResult | undefined;
   for (;;) {
     try {
       const r = await tick();
+      last = r;
       if (r.spoken || r.fresh) log(`tick: polled=${r.polled} fresh=${r.fresh} spoken=${r.spoken} swallowed=${r.swallowed} undelivered=${r.undelivered}`);
     } catch (err) {
       log(`tick error: ${String(err)}`);
+    }
+    try {
+      // Two-way presence: answer any operator directive on the control topic.
+      const status: McStatus = { online: true, topics: TOPICS, last };
+      const handled = await pollControl(status);
+      if (handled) log(`control: answered ${handled} directive(s)`);
+    } catch (err) {
+      log(`control error: ${String(err)}`);
     }
     await new Promise((res) => setTimeout(res, intervalMs));
   }

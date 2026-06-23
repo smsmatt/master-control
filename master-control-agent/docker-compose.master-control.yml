@@ -16,6 +16,7 @@ services:
       CODETALKER_BRIDGE_URL: "http://10.0.0.12:7900"
       NTFY_URL: "http://127.0.0.1:8880"
       NTFY_TOPICS: "universal-exports,ghostmode-alerts"
+      MC_CONTROL_TOPIC: "mc-control"
       MC_INTERVAL_MS: "120000"
       MC_SEEN_PATH: "/opt/data/mc-seen.json"
     volumes:

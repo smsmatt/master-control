@@ -12,7 +12,7 @@
  * Best-effort and side-effect-only: a ledger write must never break the
  * narrate loop, so every operation is wrapped and never throws.
  */
-import { appendFileSync, mkdirSync, statSync, renameSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync, renameSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 // Read env per-call (not at module load) so it stays testable.
@@ -53,5 +53,23 @@ export function recordNarration(rec: NarrationRecord): void {
     appendFileSync(path, `${JSON.stringify(rec)}\n`);
   } catch {
     /* a missed ledger write must never break the narrate loop */
+  }
+}
+
+/** Read the last `n` narrations from the live ledger (newest last). Never throws. */
+export function readRecent(n = 50): NarrationRecord[] {
+  try {
+    const lines = readFileSync(logPath(), "utf8").trim().split("\n").filter(Boolean);
+    const out: NarrationRecord[] = [];
+    for (const l of lines.slice(-n)) {
+      try {
+        out.push(JSON.parse(l) as NarrationRecord);
+      } catch {
+        /* skip a malformed line */
+      }
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
