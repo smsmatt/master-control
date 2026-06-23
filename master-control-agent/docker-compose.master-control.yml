@@ -19,7 +19,11 @@ services:
       MC_INTERVAL_MS: "120000"
       MC_SEEN_PATH: "/opt/data/mc-seen.json"
     volumes:
-      - ./data:/opt/data
+      # Named volume, NOT a host bind mount: Synology DSM squashes container
+      # root on bind-mounted shares, so /opt/data writes (seen-set + narration
+      # ledger) silently EACCES'd. A docker-managed named volume is writable by
+      # the container and persists across restarts/recreates.
+      - mc-data:/opt/data
     # Least privilege: this agent only polls, judges, and speaks.
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -30,3 +34,6 @@ services:
           # CFS scheduler, so `cpus:` makes `docker compose up` fail with
           # "NanoCPUs can not be set". Memory limit is honoured.
           memory: 256M
+
+volumes:
+  mc-data:

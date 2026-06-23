@@ -18,6 +18,7 @@ import { pollAll } from "./ntfy.js";
 import { lookup, isRealThreat } from "./greynoise.js";
 import { phrase } from "./phrase.js";
 import { speak } from "./codetalker.js";
+import { recordNarration } from "./record.js";
 
 const SEEN_PATH = process.env.MC_SEEN_PATH ?? "/opt/data/mc-seen.json";
 const POLL_SINCE = process.env.MC_POLL_SINCE ?? "5m";
@@ -46,6 +47,7 @@ export interface TickResult {
   fresh: number;
   spoken: number;
   swallowed: number;
+  undelivered: number; // approved + recorded but the bridge would not accept it (retried next tick)
 }
 
 /** One poll → judge → narrate cycle. Returns counts for logging. */
@@ -55,11 +57,12 @@ export async function tick(): Promise<TickResult> {
   const fresh = alerts.filter((a) => !seen.has(a.id));
   let spoken = 0;
   let swallowed = 0;
+  let undelivered = 0;
 
   for (const alert of fresh) {
-    seen.add(alert.id);
     const decision = evaluate(alert);
     if (!decision.speak) {
+      seen.add(alert.id); // legitimately not voiced — never reconsider
       swallowed++;
       continue;
     }
@@ -70,6 +73,7 @@ export async function tick(): Promise<TickResult> {
         note = `source ${decision.ip} is internal`;
       } else if (!isRealThreat(verdict)) {
         // GreyNoise says noise / riot / benign / unconfirmed → do not cry wolf.
+        seen.add(alert.id);
         swallowed++;
         continue;
       } else {
@@ -78,12 +82,32 @@ export async function tick(): Promise<TickResult> {
     }
     const line = await phrase(alert, note);
     const ok = await speak(line);
-    if (ok) spoken++;
-    else swallowed++; // could not voice; counts as not-announced
+    // Durable ledger FIRST, independent of delivery: this is the "never lose a
+    // narration" guarantee. A delivered line is also mirrored to Matrix by the
+    // bridge; an undelivered one (bridge down / empty room) survives only here.
+    recordNarration({
+      ts: new Date().toISOString(),
+      id: alert.id,
+      topic: alert.topic,
+      title: alert.title,
+      security: Boolean(decision.security),
+      ip: decision.ip,
+      note,
+      line,
+      delivered: ok,
+    });
+    if (ok) {
+      seen.add(alert.id); // delivered → done
+      spoken++;
+    } else {
+      // NOT marked seen: a transient bridge outage gets retried next tick while
+      // the alert is still inside the poll window, instead of vanishing.
+      undelivered++;
+    }
   }
 
   saveSeen(seen);
-  return { polled: alerts.length, fresh: fresh.length, spoken, swallowed };
+  return { polled: alerts.length, fresh: fresh.length, spoken, swallowed, undelivered };
 }
 
 /** Long-running daemon: tick every MC_INTERVAL_MS (default 120s). */
@@ -98,7 +122,7 @@ export async function daemon(): Promise<void> {
   for (;;) {
     try {
       const r = await tick();
-      if (r.spoken || r.fresh) log(`tick: polled=${r.polled} fresh=${r.fresh} spoken=${r.spoken} swallowed=${r.swallowed}`);
+      if (r.spoken || r.fresh) log(`tick: polled=${r.polled} fresh=${r.fresh} spoken=${r.spoken} swallowed=${r.swallowed} undelivered=${r.undelivered}`);
     } catch (err) {
       log(`tick error: ${String(err)}`);
     }
