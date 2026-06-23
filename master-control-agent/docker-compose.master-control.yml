@@ -1,0 +1,32 @@
+# Master Control on a1 (10.0.0.12). host networking to reach a1-local services:
+#   Code:Talker bridge :7900, ntfy :8880 (loopback), MLX :8881 (on ai), ChromaDB :18000.
+# Image built on ai.matthewstevens.org (never on a1), pushed to applepublicdotcom.
+services:
+  master-control:
+    image: applepublicdotcom/master-control-agent:testing
+    container_name: master-control
+    restart: unless-stopped
+    network_mode: host
+    command: ["daemon"]
+    env_file:
+      - ./master-control.env
+    environment:
+      OLLAMA_URL: "http://10.0.0.96:8881"
+      OLLAMA_MODEL: "mlx-community/Qwen3-14B-4bit-AWQ"
+      CODETALKER_BRIDGE_URL: "http://10.0.0.12:7900"
+      NTFY_URL: "http://127.0.0.1:8880"
+      NTFY_TOPICS: "universal-exports,ghostmode-alerts"
+      MC_INTERVAL_MS: "120000"
+      MC_SEEN_PATH: "/opt/data/mc-seen.json"
+    volumes:
+      - ./data:/opt/data
+    # Least privilege: this agent only polls, judges, and speaks.
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          # NOTE: cpus limit omitted — Synology DSM (a1) kernel lacks the CPU
+          # CFS scheduler, so `cpus:` makes `docker compose up` fail with
+          # "NanoCPUs can not be set". Memory limit is honoured.
+          memory: 256M

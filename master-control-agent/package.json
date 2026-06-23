@@ -1,0 +1,24 @@
+{
+  "name": "@sanmarcsoft/master-control-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Master Control — deterministic ops-narrator. Polls ntfy, judges in code, validates threats via GreyNoise, speaks via Code:Talker. LLM phrases only.",
+  "bin": {
+    "master-control": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/",
+    "daemon": "node dist/index.js daemon",
+    "tick": "node dist/index.js tick",
+    "session-begin": "node dist/index.js session-begin"
+  },
+  "devDependencies": {
+    "@types/node": "22",
+    "typescript": "5"
+  }
+}
