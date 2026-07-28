@@ -8,8 +8,13 @@
  */
 import type { NtfyAlert } from "./gate.js";
 
-const LLM_URL = process.env.OLLAMA_URL ?? "http://ai.matthewstevens.org:8881";
-const LLM_MODEL = process.env.OLLAMA_MODEL ?? "mlx-community/Qwen3-14B-4bit-AWQ";
+// MTPLX on ai.matthewstevens.org, OpenAI-compatible. The vars were named
+// OLLAMA_* when this was written; nothing here has run on Ollama for some time,
+// and the default model name had gone stale behind the misleading name because
+// mtplx answers with whatever it has loaded rather than rejecting an unknown
+// model, so the config could drift without ever erroring.
+const LLM_URL = process.env.MC_LLM_URL ?? "http://ai.matthewstevens.org:8881";
+const LLM_MODEL = process.env.MC_LLM_MODEL ?? "qwen3.5-9b-mtplx";
 
 const SYSTEM =
   "You are Master Control, a SanMarcSoft NOC operator. You are given ONE ops event that has ALREADY been judged worth announcing. " +

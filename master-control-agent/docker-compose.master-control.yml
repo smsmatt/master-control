@@ -11,8 +11,13 @@ services:
     env_file:
       - ./master-control.env
     environment:
-      OLLAMA_URL: "http://10.0.0.96:8881"
-      OLLAMA_MODEL: "mlx-community/Qwen3-14B-4bit-AWQ"
+      # MTPLX on ai (not Ollama; the vars were named OLLAMA_* historically).
+      MC_LLM_URL: "http://10.0.0.96:8881"
+      # The name ai:8881 actually serves (probed 2026-07-28). It previously read
+      # mlx-community/Qwen3-14B-4bit-AWQ, which no longer exists there; mtplx
+      # ignores the requested name and answers with whatever is loaded, so the
+      # mismatch never surfaced as an error, only as a misleading config.
+      MC_LLM_MODEL: "qwen3.5-9b-mtplx"
       CODETALKER_BRIDGE_URL: "http://10.0.0.12:7900"
       NTFY_URL: "http://127.0.0.1:8880"
       # universal-exports only. ghostmode-alerts is the Phenom CLIENT view of the
