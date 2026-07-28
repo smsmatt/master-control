@@ -44,6 +44,14 @@ services:
       # this narrower subscription is the cheap belt to that braces.
       NTFY_TOPICS: "universal-exports"
       MC_CONTROL_TOPIC: "mc-control"
+      # Inbound listener for the Code:Talker bridge. Bound to a1's LAN address,
+      # not loopback: the bridge runs on the default docker bridge network, so
+      # its 127.0.0.1 is its own, not a1's. Q confirmed this before it was built.
+      # MC_LISTEN_TOKEN lives in master-control.env with the other secrets; with
+      # it unset the listener refuses to open and ntfy mc-control stays the only
+      # inbound channel.
+      MC_LISTEN_HOST: "0.0.0.0"
+      MC_LISTEN_PORT: "7910"
       MC_INTERVAL_MS: "120000"
       MC_SEEN_PATH: "/opt/data/mc-seen.json"
     volumes:

@@ -29,6 +29,28 @@ ntfy(universal-exports, ghostmode-alerts) → dedup → gate.evaluate()
    → phrase() via MLX (static fallback) → codetalker.speak() as master-control
 ```
 
+## Inbound (the Code:Talker bridge)
+
+Master Control used to be a write-only client of the bridge's `POST /speak`; its
+only inbound channel was the ntfy `mc-control` topic, polled every 120s. `src/listen.ts`
+adds a real listener so push-to-talk reaches it directly. ntfy `mc-control` stays live
+as the fallback channel.
+
+| Endpoint | Auth | Notes |
+|----------|------|-------|
+| `GET /health` | none | The bridge's probe (`registerAgent`) sends no credentials and then calls `.json()` on the body, so this must be open and must return parseable JSON. |
+| `POST /mcp` | `Bearer $MC_LISTEN_TOKEN` | JSON-RPC 2.0. `initialize` returns the session in the **`mcp-session-id` response header**, which is where the bridge reads it. Tool `respond` takes `{ message, from }`. |
+
+The RED TEAM property is unchanged: this is a second transport onto the same
+pure-code `handleDirective`, not a second handler. The directive text selects
+status / threats / help and never drives a tool or a shell. The bridge wraps the
+directive in an MHH preamble and a context brief, so the intent is parsed from
+inside the payload rather than matched against the whole string.
+
+To wire it up, Q sets `MASTER_CONTROL_AGENT_URL=http://10.0.0.12:7910` in
+`/var/services/homes/matt/.codetalker-bridge.env` and flips Master Control's
+`transport` to `"mcp"` in `bridge.ts`.
+
 ## Modes (`dist/index.js <mode>` / `entrypoint.sh <mode>`)
 
 | Mode | Behaviour |
@@ -52,6 +74,9 @@ ntfy(universal-exports, ghostmode-alerts) → dedup → gate.evaluate()
 | `MC_INTERVAL_MS` | `120000` | Daemon poll interval. |
 | `MC_POLL_SINCE` | `5m` | ntfy lookback window per poll. |
 | `MC_CONTROL_TOPIC` | `mc-control` | ntfy topic MC answers operator directives on. |
+| `MC_LISTEN_TOKEN` | — | Bearer for the inbound MCP listener (`pass: sanmarcsoft/master-control/listener-token`). Empty means the listener does not open at all. |
+| `MC_LISTEN_HOST` | `0.0.0.0` | Listener bind address. The bridge is on the default docker bridge network, so loopback is not reachable from it. |
+| `MC_LISTEN_PORT` | `7910` | Listener port. |
 | `MC_SEEN_PATH` | `/opt/data/mc-seen.json` | Dedup store (mount a volume). |
 | `MC_ANNOUNCED_PATH` | `/opt/data/mc-announced.json` | Content-key cooldown store. |
 | `MC_REANNOUNCE_MS` | `14400000` (4h) | Re-voice an unresolved condition only after this, or on priority escalation. |
@@ -66,7 +91,10 @@ Ollama for some time.
 ```bash
 bun add -d @types/node@22 typescript@5   # or npm i -D
 bunx tsc -p tsconfig.json                # typecheck + emit dist/
-node --test dist/                        # gate tests (or: bun test src/gate.test.ts)
+node --test dist/*.test.js               # the gate. Scoped to *.test.js on purpose:
+                                         # `node --test dist/` also picks up index.js,
+                                         # whose top-level switch starts the daemon, so
+                                         # the run never terminates.
 node dist/index.js tick                  # one cycle
 ```
 

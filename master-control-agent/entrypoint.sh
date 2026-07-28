@@ -8,7 +8,9 @@ echo "=== Master Control (${MODE}) ==="
 # model the agent was not using.
 # Presence only, never the value: a banner is the wrong place for a secret.
 if [ -n "${MC_LLM_KEY:-}" ]; then LLM_KEY_STATE="set"; else LLM_KEY_STATE="MISSING (lines will be templates)"; fi
+if [ -n "${MC_LISTEN_TOKEN:-}" ]; then LISTEN_STATE="${MC_LISTEN_HOST:-0.0.0.0}:${MC_LISTEN_PORT:-7910} token=set"; else LISTEN_STATE="DISABLED (no MC_LISTEN_TOKEN)"; fi
 echo "ntfy:   ${NTFY_URL:-http://127.0.0.1:8880} topics=${NTFY_TOPICS:-universal-exports}"
 echo "llm:    ${MC_LLM_URL:-http://ai.matthewstevens.org:8881} (${MC_LLM_MODEL:-qwen3.5-9b-mtplx}) key=${LLM_KEY_STATE}"
 echo "bridge: ${CODETALKER_BRIDGE_URL:-http://10.0.0.12:7900}"
+echo "listen: ${LISTEN_STATE}"
 exec node dist/index.js "$MODE"

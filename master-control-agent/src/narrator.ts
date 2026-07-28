@@ -20,6 +20,7 @@ import { phrase } from "./phrase.js";
 import { speak } from "./codetalker.js";
 import { recordNarration } from "./record.js";
 import { seedControl, pollControl, type McStatus } from "./control.js";
+import { startListener } from "./listen.js";
 
 const SEEN_PATH = process.env.MC_SEEN_PATH ?? "/opt/data/mc-seen.json";
 const POLL_SINCE = process.env.MC_POLL_SINCE ?? "5m";
@@ -194,6 +195,11 @@ export async function daemon(): Promise<void> {
   await seedControl(); // don't replay a backlog of old directives on restart
   log(`Master Control narrator online. Interval ${intervalMs}ms.`);
   let last: TickResult | undefined;
+  // Inbound surface for the Code:Talker bridge. The closure reads the live
+  // `last`, so /health and a directive both report the most recent cycle rather
+  // than a snapshot taken at boot. Returns null (and logs) when unconfigured,
+  // in which case the ntfy control topic remains the only inbound channel.
+  startListener(() => ({ online: true, topics: TOPICS, last }), log);
   for (;;) {
     try {
       const r = await tick();
