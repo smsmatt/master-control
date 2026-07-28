@@ -5,12 +5,12 @@ services:
   master-control:
     # Pinned by digest, not by the rolling :testing tag. An unpinned rolling tag
     # is how a stale image lingers unnoticed in a running service.
-    # v20260728-9ddc3f9a, built on ai 2026-07-28. This digest is the one the
-    # container on a1 is actually running, read back from the Docker API rather
-    # than assumed: the previous pin here named the first build of the day and
-    # was already a revision behind by the time it was committed, which is the
-    # same staleness the pin exists to prevent.
-    image: applepublicdotcom/master-control-agent:testing@sha256:91241b49d88c255b26edf95eef00c76e1e1168109cc9baa4e7c78754500b2a71
+    # v20260728-e99dcd40, built on ai 2026-07-28: the authenticated phrasing
+    # call. This digest is the one the container on a1 is actually running, read
+    # back from the Docker API rather than assumed: an earlier pin here named the
+    # first build of the day and was already a revision behind by the time it was
+    # committed, which is the same staleness the pin exists to prevent.
+    image: applepublicdotcom/master-control-agent:testing@sha256:161e0c2bfe2f60c2cb2ce7f0992524a006306c9c0a9dbc4c031d8e0e7a70a9bf
     container_name: master-control
     restart: unless-stopped
     network_mode: host
