@@ -7,7 +7,10 @@ import type { NtfyAlert } from "./gate.js";
 const NTFY_URL = process.env.NTFY_URL ?? "http://127.0.0.1:8880";
 const NTFY_TOKEN = process.env.NTFY_TOKEN ?? "";
 
-export const TOPICS = (process.env.NTFY_TOPICS ?? "universal-exports,ghostmode-alerts")
+// universal-exports alone by default: it is the operator's full feed, and
+// ghostmode-alerts mirrors the same conditions as the Phenom client view, so
+// subscribing to both announced everything twice.
+export const TOPICS = (process.env.NTFY_TOPICS ?? "universal-exports")
   .split(",")
   .map((t) => t.trim())
   .filter(Boolean);

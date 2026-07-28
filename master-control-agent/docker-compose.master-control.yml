@@ -3,7 +3,10 @@
 # Image built on ai.matthewstevens.org (never on a1), pushed to applepublicdotcom.
 services:
   master-control:
-    image: applepublicdotcom/master-control-agent:testing
+    # Pinned by digest, not by the rolling :testing tag. An unpinned rolling tag
+    # is how a stale image lingers unnoticed in a running service.
+    # v20260728-7ba7817c, built on ai 2026-07-28.
+    image: applepublicdotcom/master-control-agent:testing@sha256:7a8e98ecb509625b8c15c53f99a412bb17198324e9f73626ff3cac0397c6b2b3
     container_name: master-control
     restart: unless-stopped
     network_mode: host

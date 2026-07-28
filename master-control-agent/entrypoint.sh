@@ -3,7 +3,10 @@
 set -e
 MODE="${1:-daemon}"
 echo "=== Master Control (${MODE}) ==="
-echo "ntfy:   ${NTFY_URL:-http://127.0.0.1:8880} topics=${NTFY_TOPICS:-universal-exports,ghostmode-alerts}"
-echo "llm:    ${OLLAMA_URL:-http://ai.matthewstevens.org:8881} (${OLLAMA_MODEL:-mlx-community/Qwen3-14B-4bit-AWQ})"
+# Defaults here MUST track the ones in the code they describe (ntfy.ts,
+# phrase.ts). They drifted once already and the banner spent months reporting a
+# model the agent was not using.
+echo "ntfy:   ${NTFY_URL:-http://127.0.0.1:8880} topics=${NTFY_TOPICS:-universal-exports}"
+echo "llm:    ${MC_LLM_URL:-http://ai.matthewstevens.org:8881} (${MC_LLM_MODEL:-qwen3.5-9b-mtplx})"
 echo "bridge: ${CODETALKER_BRIDGE_URL:-http://10.0.0.12:7900}"
 exec node dist/index.js "$MODE"
