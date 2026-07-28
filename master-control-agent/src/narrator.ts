@@ -25,6 +25,54 @@ const SEEN_PATH = process.env.MC_SEEN_PATH ?? "/opt/data/mc-seen.json";
 const POLL_SINCE = process.env.MC_POLL_SINCE ?? "5m";
 const SEEN_MAX = 2000;
 
+// Content-based re-announce suppression. A persistently-firing monitor arrives
+// each poll as a NEW ntfy id, so id-dedup alone re-voices it every ~120s (the
+// "plethora of repeats"). Suppress by a stable CONTENT key with a cooldown:
+// re-voice the same unresolved condition only on priority escalation or after
+// MC_REANNOUNCE_MS. This is the primary fix for repeat narration.
+const ANNOUNCED_PATH = process.env.MC_ANNOUNCED_PATH ?? "/opt/data/mc-announced.json";
+const REANNOUNCE_MS = Number(process.env.MC_REANNOUNCE_MS ?? 4 * 3_600_000); // 4h
+const ANNOUNCED_MAX = 2000;
+
+interface Announcement {
+  ts: number;
+  priority: number;
+}
+
+/**
+ * Stable content key — title+message, whitespace/case-normalised.
+ *
+ * Deliberately NOT keyed on topic. The publishers mirror each alert to more
+ * than one topic on purpose (ghostmode-alerts is the client view,
+ * universal-exports the operator's) and Master Control subscribes to both.
+ * Including the topic made each mirror a distinct key, so the cooldown could
+ * never collapse them and every condition was announced twice: the ntfy corpus
+ * for 2026-07-28 shows 23 identical Dev NEST alerts on each of the two topics.
+ * One condition, one announcement, wherever it was published.
+ */
+export function contentKey(a: NtfyAlert): string {
+  return `${a.title}|${a.message}`.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function loadAnnounced(): Record<string, Announcement> {
+  try {
+    return JSON.parse(readFileSync(ANNOUNCED_PATH, "utf8")) as Record<string, Announcement>;
+  } catch {
+    return {};
+  }
+}
+
+function saveAnnounced(map: Record<string, Announcement>): void {
+  // Bound growth: keep the most-recent ANNOUNCED_MAX by timestamp.
+  const entries = Object.entries(map).sort((a, b) => b[1].ts - a[1].ts).slice(0, ANNOUNCED_MAX);
+  try {
+    mkdirSync(dirname(ANNOUNCED_PATH), { recursive: true });
+    writeFileSync(ANNOUNCED_PATH, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    /* best-effort; a missed persist just risks one extra re-announce */
+  }
+}
+
 function loadSeen(): Set<string> {
   try {
     return new Set(JSON.parse(readFileSync(SEEN_PATH, "utf8")) as string[]);
@@ -54,6 +102,7 @@ export interface TickResult {
 /** One poll → judge → narrate cycle. Returns counts for logging. */
 export async function tick(): Promise<TickResult> {
   const seen = loadSeen();
+  const announced = loadAnnounced();
   const alerts = await pollAll(POLL_SINCE);
   const fresh = alerts.filter((a) => !seen.has(a.id));
   let spoken = 0;
@@ -64,6 +113,15 @@ export async function tick(): Promise<TickResult> {
     const decision = evaluate(alert);
     if (!decision.speak) {
       seen.add(alert.id); // legitimately not voiced — never reconsider
+      swallowed++;
+      continue;
+    }
+    // Content-cooldown: same condition already voiced recently and not escalated → swallow.
+    const key = contentKey(alert);
+    const prev = announced[key];
+    const escalated = prev !== undefined && alert.priority > prev.priority;
+    if (prev !== undefined && !escalated && Date.now() - prev.ts < REANNOUNCE_MS) {
+      seen.add(alert.id);
       swallowed++;
       continue;
     }
@@ -91,6 +149,8 @@ export async function tick(): Promise<TickResult> {
       id: alert.id,
       topic: alert.topic,
       title: alert.title,
+      message: alert.message,
+      priority: alert.priority,
       security: Boolean(decision.security),
       ip: decision.ip,
       note,
@@ -99,6 +159,7 @@ export async function tick(): Promise<TickResult> {
     });
     if (ok) {
       seen.add(alert.id); // delivered → done
+      announced[key] = { ts: Date.now(), priority: alert.priority }; // start cooldown
       spoken++;
     } else {
       // NOT marked seen: a transient bridge outage gets retried next tick while
@@ -108,6 +169,7 @@ export async function tick(): Promise<TickResult> {
   }
 
   saveSeen(seen);
+  saveAnnounced(announced);
   return { polled: alerts.length, fresh: fresh.length, spoken, swallowed, undelivered };
 }
 

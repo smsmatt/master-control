@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync, rmSync, mkdtempSync } from "node:fs";
+import { readFileSync, existsSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { recordNarration } from "./record.js";
@@ -49,12 +49,20 @@ test("rotates to <path>.1 once the size cap is crossed", () => {
 });
 
 test("never throws on an unwritable path", () => {
-  process.env.MC_NARRATION_LOG = "/proc/nonexistent-dir/cannot-write.jsonl";
+  // A regular file standing where a directory must be: mkdirSync fails ENOTDIR
+  // on every platform, immediately. The earlier version pointed at /proc, where
+  // mkdirSync hangs indefinitely inside a container — which silently wedged the
+  // whole `node --test` run rather than failing it.
+  const dir = mkdtempSync(join(tmpdir(), "mc-rec-"));
+  const blocker = join(dir, "not-a-directory");
+  writeFileSync(blocker, "");
+  process.env.MC_NARRATION_LOG = join(blocker, "cannot-write.jsonl");
   try {
     assert.doesNotThrow(() =>
       recordNarration({ ts: "t", id: "a", topic: "x", title: "", security: false, line: "x", delivered: true }),
     );
   } finally {
     delete process.env.MC_NARRATION_LOG;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/",
+    "_comment_test": "Scoped to *.test.js on purpose: `node --test dist/` also picks up index.js, whose top-level switch starts the daemon, so the run never terminates.",
+    "test": "npm run build && node --test dist/*.test.js",
     "daemon": "node dist/index.js daemon",
     "tick": "node dist/index.js tick",
     "session-begin": "node dist/index.js session-begin"

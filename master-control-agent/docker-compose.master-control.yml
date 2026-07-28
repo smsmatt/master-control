@@ -15,7 +15,17 @@ services:
       OLLAMA_MODEL: "mlx-community/Qwen3-14B-4bit-AWQ"
       CODETALKER_BRIDGE_URL: "http://10.0.0.12:7900"
       NTFY_URL: "http://127.0.0.1:8880"
-      NTFY_TOPICS: "universal-exports,ghostmode-alerts"
+      # universal-exports only. ghostmode-alerts is the Phenom CLIENT view of the
+      # same conditions and the publishers mirror to both, so subscribing to both
+      # made Master Control announce every condition twice. Over the 2026-07-28
+      # 24h ntfy corpus (312 messages) every distinct ghostmode-alerts message
+      # also appeared on universal-exports — 0 unique to it, 5 unique the other
+      # way (a1-local Prometheus alerts) — so nothing observed is lost here.
+      # That is an observation, not a guarantee: if a publisher is ever pointed
+      # at ghostmode-alerts alone, add it back. contentKey no longer includes the
+      # topic either, which collapses mirrors whatever they are published to;
+      # this narrower subscription is the cheap belt to that braces.
+      NTFY_TOPICS: "universal-exports"
       MC_CONTROL_TOPIC: "mc-control"
       MC_INTERVAL_MS: "120000"
       MC_SEEN_PATH: "/opt/data/mc-seen.json"
