@@ -16,7 +16,7 @@ import { recordNarration } from "./record.js";
 const status: McStatus = {
   online: true,
   topics: ["universal-exports", "ghostmode-alerts"],
-  last: { polled: 4, fresh: 1, spoken: 1, swallowed: 0, undelivered: 0 },
+  last: { polled: 4, fresh: 1, spoken: 1, swallowed: 0, undelivered: 0, fellBack: 0, llmUnreachable: 0 },
 };
 
 test("status intent reports online + watched topics + last cycle", () => {
@@ -24,6 +24,20 @@ test("status intent reports online + watched topics + last cycle", () => {
   assert.match(r, /online/i);
   assert.match(r, /universal-exports/);
   assert.match(r, /polled 4/);
+});
+
+test("status admits a dead phrasing model instead of reporting a clean cycle", () => {
+  // The operator asking for status is the one person who cannot otherwise tell
+  // that every line came from the template.
+  const degraded: McStatus = {
+    ...status,
+    last: { polled: 4, fresh: 2, spoken: 2, swallowed: 0, undelivered: 0, fellBack: 2, llmUnreachable: 2 },
+  };
+  assert.match(handleDirective("status", degraded), /phrasing model unreachable/i);
+});
+
+test("status stays quiet about phrasing when the model is healthy", () => {
+  assert.doesNotMatch(handleDirective("status", status), /unreachable/i);
 });
 
 test("threat intent with empty ledger says the board is quiet", () => {

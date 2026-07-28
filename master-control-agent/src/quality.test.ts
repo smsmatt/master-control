@@ -18,6 +18,7 @@ function rec(p: Partial<NarrationRecord>): NarrationRecord {
     security: p.security ?? false,
     note: p.note,
     line: p.line ?? "Master Control. verifieddit.com is down. Out.",
+    phraseSource: p.phraseSource,
     delivered: p.delivered ?? true,
   };
 }
@@ -28,6 +29,7 @@ test("empty ledger → all-zero metrics, no throw", () => {
     hallucinationRate: 0,
     duplicateRate: 0,
     fallbackRate: 0,
+    llmUnreachableRate: 0,
     undeliveredRate: 0,
   });
 });
@@ -69,9 +71,39 @@ test("isFallback recognises the template and not an LLM line", () => {
   assert.equal(isFallback("Master Control. verifieddit.com is unreachable. Out."), false);
 });
 
+// --- separating a dead model from a working guard ---------------------------
+
+test("an unreachable model raises llmUnreachableRate, not just fallbackRate", () => {
+  const m = computeQuality([rec({ phraseSource: "unreachable" })]);
+  assert.equal(m.fallbackRate, 1);
+  assert.equal(m.llmUnreachableRate, 1);
+});
+
+test("a rejected line counts as fallback but leaves llmUnreachableRate at zero", () => {
+  // The guard rejecting an ungrounded line is the system working. Reading it as
+  // an outage would send an operator chasing a healthy dependency.
+  const m = computeQuality([rec({ phraseSource: "rejected" })]);
+  assert.equal(m.fallbackRate, 1);
+  assert.equal(m.llmUnreachableRate, 0);
+});
+
+test("an LLM line that happens to look like the template is not counted as fallback", () => {
+  const m = computeQuality([
+    rec({ phraseSource: "llm", line: "Master Control. Alert, l. verifieddit.com: DOWN. Out." }),
+  ]);
+  assert.equal(m.fallbackRate, 0);
+});
+
+test("records written before phraseSource existed still grade by shape", () => {
+  const m = computeQuality([rec({ line: "Master Control. Alert, l. verifieddit.com: DOWN. Out." })]);
+  assert.equal(m.fallbackRate, 1);
+  assert.equal(m.llmUnreachableRate, 0);
+});
+
 test("toPrometheus emits the gauges", () => {
   const out = toPrometheus(computeQuality([rec({})]));
   assert.ok(out.includes("mc_narration_graded_total 1"));
   assert.ok(out.includes("mc_narration_hallucination_rate 0"));
   assert.ok(out.includes("# TYPE mc_narration_duplicate_rate gauge"));
+  assert.ok(out.includes("# TYPE mc_narration_llm_unreachable_rate gauge"));
 });

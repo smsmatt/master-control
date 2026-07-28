@@ -14,6 +14,7 @@
  */
 import { appendFileSync, mkdirSync, statSync, renameSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { PhraseSource } from "./phrase.js";
 
 // Read env per-call (not at module load) so it stays testable.
 function logPath(): string {
@@ -34,6 +35,9 @@ export interface NarrationRecord {
   ip?: string;
   note?: string;
   line: string; // the phrased line that was (or would have been) spoken
+  // Which path produced the line. Optional: records written before this existed
+  // have none, and the quality grader falls back to shape-matching for those.
+  phraseSource?: PhraseSource;
   delivered: boolean; // did the bridge accept the /speak?
 }
 

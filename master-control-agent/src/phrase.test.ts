@@ -12,7 +12,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { numeralsGrounded } from "./phrase.js";
+import { numeralsGrounded, phrase, fallbackLine } from "./phrase.js";
+import type { NtfyAlert } from "./gate.js";
 
 // --- digits, the original guard ---------------------------------------------
 
@@ -93,4 +94,151 @@ test("a full real alert phrased faithfully passes", () => {
 test("a decimal is matched against the source verbatim", () => {
   assert.equal(numeralsGrounded("Master Control. Latency 1.5 seconds. Out.", "latency 1.5s"), true);
   assert.equal(numeralsGrounded("Master Control. Latency 2.5 seconds. Out.", "latency 1.5s"), false);
+});
+
+// --- talking to the model: auth, and which path produced the line ------------
+//
+// MTPLX began requiring an API key. phrase() sent no Authorization header, so
+// every call 401'd and every line came from the deterministic template. Nothing
+// showed it: the tick line read `spoken=1 undelivered=0` either way, because the
+// fallback that protects a real alert from a dead model also hides the dead
+// model. These tests pin both halves — the key is sent, and the path that
+// produced the line is reported.
+
+const ALERT: NtfyAlert = {
+  id: "t1",
+  topic: "universal-exports",
+  title: "Dev NEST: DOWN",
+  message: "Dev NEST is DOWN (dev-nest.thephenom.app).",
+  priority: 5,
+  time: 0,
+  tags: [],
+};
+
+interface CapturedCall {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/** An OpenAI-shaped completion carrying `content`. */
+function llmSaid(content: string): Response {
+  return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** Run `fn` with global fetch swapped for `respond`, capturing what was sent. */
+async function withStubbedLlm(
+  respond: () => Response | Promise<Response>,
+  fn: (calls: CapturedCall[]) => Promise<void>,
+): Promise<void> {
+  const calls: CapturedCall[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown, init?: { headers?: Record<string, string> }) => {
+    calls.push({ url: String(input), headers: { ...(init?.headers ?? {}) } });
+    return respond();
+  }) as typeof fetch;
+  try {
+    await fn(calls);
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test("the key is sent as a bearer token when MC_LLM_KEY is set", async () => {
+  process.env.MC_LLM_KEY = "sekrit";
+  try {
+    await withStubbedLlm(
+      () => llmSaid("Master Control. Dev NEST is down. Out."),
+      async (calls) => {
+        const r = await phrase(ALERT);
+        assert.equal(r.source, "llm");
+        assert.equal(calls[0].headers.Authorization, "Bearer sekrit");
+      },
+    );
+  } finally {
+    delete process.env.MC_LLM_KEY;
+  }
+});
+
+test("no Authorization header is sent when MC_LLM_KEY is absent", async () => {
+  delete process.env.MC_LLM_KEY;
+  await withStubbedLlm(
+    () => llmSaid("Master Control. Dev NEST is down. Out."),
+    async (calls) => {
+      await phrase(ALERT);
+      assert.equal(calls[0].headers.Authorization, undefined);
+      assert.equal(calls[0].headers["Content-Type"], "application/json");
+    },
+  );
+});
+
+test("a 401 from the model is reported as unreachable, not as a normal line", async () => {
+  await withStubbedLlm(
+    () => new Response("missing or invalid API key", { status: 401 }),
+    async () => {
+      const r = await phrase(ALERT);
+      assert.equal(r.source, "unreachable");
+      assert.equal(r.line, fallbackLine(ALERT));
+    },
+  );
+});
+
+test("a network failure is reported as unreachable", async () => {
+  await withStubbedLlm(
+    () => {
+      throw new Error("connect ECONNREFUSED");
+    },
+    async () => {
+      const r = await phrase(ALERT);
+      assert.equal(r.source, "unreachable");
+      assert.equal(r.line, fallbackLine(ALERT));
+    },
+  );
+});
+
+test("an ungrounded line is reported as rejected, NOT as unreachable", async () => {
+  // The distinction is the whole point: "rejected" means the grounding guard did
+  // its job on a live model, "unreachable" means the dependency is dead. A single
+  // fallback counter conflates a healthy system with a broken one.
+  await withStubbedLlm(
+    () => llmSaid("Master Control. Failing for 902 checks. Out."),
+    async () => {
+      const r = await phrase(ALERT);
+      assert.equal(r.source, "rejected");
+      assert.equal(r.line, fallbackLine(ALERT));
+    },
+  );
+});
+
+test("an empty completion is reported as rejected", async () => {
+  await withStubbedLlm(
+    () => llmSaid("   "),
+    async () => {
+      assert.equal((await phrase(ALERT)).source, "rejected");
+    },
+  );
+});
+
+test("a grounded line is spoken verbatim and reported as llm", async () => {
+  await withStubbedLlm(
+    () => llmSaid("Master Control. Dev NEST is down at dev-nest.thephenom.app. Out."),
+    async () => {
+      const r = await phrase(ALERT);
+      assert.equal(r.source, "llm");
+      assert.equal(r.line, "Master Control. Dev NEST is down at dev-nest.thephenom.app. Out.");
+    },
+  );
+});
+
+test("the note is carried into the fallback when the model is unreachable", async () => {
+  await withStubbedLlm(
+    () => new Response("", { status: 503 }),
+    async () => {
+      const r = await phrase(ALERT, "GreyNoise confirms 9.9.9.9 malicious");
+      assert.equal(r.source, "unreachable");
+      assert.match(r.line, /GreyNoise confirms 9\.9\.9\.9 malicious/);
+    },
+  );
 });

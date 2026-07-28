@@ -13,11 +13,14 @@
 import { poll } from "./ntfy.js";
 import { speak } from "./codetalker.js";
 import { recordNarration, readRecent } from "./record.js";
+import type { TickResult } from "./narrator.js";
 
 export interface McStatus {
   online: boolean;
   topics: string[];
-  last?: { polled: number; fresh: number; spoken: number; swallowed: number; undelivered: number };
+  // Type-only import of the daemon's own result shape, so a new counter cannot
+  // be added to the loop and quietly go unreported here.
+  last?: TickResult;
 }
 
 const CONTROL_TOPIC = () => process.env.MC_CONTROL_TOPIC ?? "mc-control";
@@ -35,7 +38,11 @@ export function handleDirective(text: string, status: McStatus): string {
     const tail = l
       ? ` Last cycle: polled ${l.polled}, spoke ${l.spoken}, swallowed ${l.swallowed}${l.undelivered ? `, ${l.undelivered} undelivered` : ""}.`
       : "";
-    return `Master Control online, watching ${status.topics.join(" and ")}.${tail}`;
+    // When an operator asks for status, a degraded phrasing leg is exactly the
+    // thing they cannot otherwise see. Say it out loud rather than reporting a
+    // clean cycle that happens to have been read from templates.
+    const phrasing = l?.llmUnreachable ? " Phrasing model unreachable; speaking from templates." : "";
+    return `Master Control online, watching ${status.topics.join(" and ")}.${tail}${phrasing}`;
   }
 
   if (/\b(threat|threats|security|ghostmode|attack|picture|incidents?)\b/.test(t)) {

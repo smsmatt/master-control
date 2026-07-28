@@ -18,6 +18,10 @@
  *     template (LLM down or its output was rejected as ungrounded). Diagnostic,
  *     not inherently bad — a rising fallbackRate with a flat hallucinationRate
  *     means the grounding guard is doing its job.
+ *   - llmUnreachableRate: the half of fallbackRate that IS bad — the model could
+ *     not be reached at all. Split out because the two causes need opposite
+ *     responses and fallbackRate alone cannot tell them apart, which is how a
+ *     401 from MTPLX went unnoticed while every other number looked healthy.
  *   - undeliveredRate: fraction the bridge would not accept (delivery health).
  */
 import type { NarrationRecord } from "./record.js";
@@ -29,6 +33,7 @@ export interface QualityMetrics {
   hallucinationRate: number;
   duplicateRate: number;
   fallbackRate: number;
+  llmUnreachableRate: number;
   undeliveredRate: number;
   windowStart?: string;
   windowEnd?: string;
@@ -39,23 +44,35 @@ export function isFallback(line: string): boolean {
   return /^Master Control\. (Alert|Notice), .+\. .+\. Out\.$/.test(line.trim());
 }
 
+/**
+ * Did this record use the template? Prefer what the phrasing step recorded;
+ * shape-match only for records written before phraseSource existed. Shape alone
+ * cannot distinguish an unreachable model from a rejected line, and cannot tell
+ * an LLM line that happens to look like the template from a real fallback.
+ */
+function usedFallback(r: NarrationRecord): boolean {
+  return r.phraseSource ? r.phraseSource !== "llm" : isFallback(r.line);
+}
+
 /** Grade a set of ledger records. Pure; safe on an empty set. */
 export function computeQuality(records: NarrationRecord[]): QualityMetrics {
   const n = records.length;
   if (n === 0) {
-    return { n: 0, hallucinationRate: 0, duplicateRate: 0, fallbackRate: 0, undeliveredRate: 0 };
+    return { n: 0, hallucinationRate: 0, duplicateRate: 0, fallbackRate: 0, llmUnreachableRate: 0, undeliveredRate: 0 };
   }
 
   let hallucinated = 0;
   let duplicate = 0;
   let fallback = 0;
+  let llmUnreachable = 0;
   let undelivered = 0;
   const seenKeys = new Set<string>();
 
   for (const r of records) {
     const source = `${r.title} ${r.message ?? ""} ${r.note ?? ""}`;
     if (!numeralsGrounded(r.line, source)) hallucinated++;
-    if (isFallback(r.line)) fallback++;
+    if (usedFallback(r)) fallback++;
+    if (r.phraseSource === "unreachable") llmUnreachable++;
     if (!r.delivered) undelivered++;
 
     const key = contentKey({ topic: r.topic, title: r.title, message: r.message ?? "" } as never);
@@ -68,6 +85,7 @@ export function computeQuality(records: NarrationRecord[]): QualityMetrics {
     hallucinationRate: hallucinated / n,
     duplicateRate: duplicate / n,
     fallbackRate: fallback / n,
+    llmUnreachableRate: llmUnreachable / n,
     undeliveredRate: undelivered / n,
     windowStart: records[0]?.ts,
     windowEnd: records[n - 1]?.ts,
@@ -83,6 +101,7 @@ export function toPrometheus(m: QualityMetrics): string {
     g("mc_narration_hallucination_rate", "Fraction of lines with a numeral absent from the source alert", m.hallucinationRate) +
     g("mc_narration_duplicate_rate", "Fraction of lines repeating a content key already voiced in the window", m.duplicateRate) +
     g("mc_narration_fallback_rate", "Fraction of lines using the deterministic fallback template", m.fallbackRate) +
+    g("mc_narration_llm_unreachable_rate", "Fraction of lines where the phrasing model could not be reached", m.llmUnreachableRate) +
     g("mc_narration_undelivered_rate", "Fraction of narrations the bridge did not accept", m.undeliveredRate)
   );
 }

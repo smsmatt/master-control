@@ -15,6 +15,11 @@ services:
     restart: unless-stopped
     network_mode: host
     command: ["daemon"]
+    # Secrets only, from `pass`: NTFY_TOKEN, GREYNOISE_API_KEY, MC_LLM_KEY.
+    # See master-control.env.example. MC_LLM_KEY is not repeated under
+    # `environment:` on purpose — a value there would be readable in the compose
+    # file and in `docker inspect` output alike, and this one belongs in the
+    # gitignored env file.
     env_file:
       - ./master-control.env
     environment:

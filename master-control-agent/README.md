@@ -41,15 +41,25 @@ ntfy(universal-exports, ghostmode-alerts) → dedup → gate.evaluate()
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `OLLAMA_URL` | `http://ai.matthewstevens.org:8881` | MLX OpenAI-compatible endpoint (phrasing only). |
-| `OLLAMA_MODEL` | `mlx-community/Qwen3-14B-4bit-AWQ` | Phrasing model. |
+| `MC_LLM_URL` | `http://ai.matthewstevens.org:8881` | MTPLX OpenAI-compatible endpoint (phrasing only). |
+| `MC_LLM_MODEL` | `qwen3.5-9b-mtplx` | Phrasing model. MTPLX answers with whatever it has loaded rather than rejecting an unknown name, so a wrong value here never errors. |
+| `MC_LLM_KEY` | — | MTPLX API key (`pass: sanmarcsoft/mtplx/api-key`). MTPLX returns 401 without it; unset means every line is a template. |
 | `CODETALKER_BRIDGE_URL` | `http://10.0.0.12:7900` | Code:Talker bridge. |
 | `NTFY_URL` | `http://127.0.0.1:8880` | ntfy server (a1 loopback). |
-| `NTFY_TOPICS` | `universal-exports,ghostmode-alerts` | Feeds to poll. |
+| `NTFY_TOPICS` | `universal-exports` | Feeds to poll. ghostmode-alerts mirrors the same conditions, so subscribing to both announced everything twice. |
 | `NTFY_TOKEN` | — | ntfy bearer (read). From `pass`. |
 | `GREYNOISE_API_KEY` | — | GreyNoise community key (`pass: greynoise/api-key`). |
 | `MC_INTERVAL_MS` | `120000` | Daemon poll interval. |
+| `MC_POLL_SINCE` | `5m` | ntfy lookback window per poll. |
+| `MC_CONTROL_TOPIC` | `mc-control` | ntfy topic MC answers operator directives on. |
 | `MC_SEEN_PATH` | `/opt/data/mc-seen.json` | Dedup store (mount a volume). |
+| `MC_ANNOUNCED_PATH` | `/opt/data/mc-announced.json` | Content-key cooldown store. |
+| `MC_REANNOUNCE_MS` | `14400000` (4h) | Re-voice an unresolved condition only after this, or on priority escalation. |
+| `MC_NARRATION_LOG` | `/opt/data/mc-narrations.jsonl` | Durable narration ledger. |
+| `MC_NARRATION_LOG_MAX_BYTES` | `5000000` | Ledger rotation threshold. |
+
+The `OLLAMA_*` names this table used to list are gone; nothing here has run on
+Ollama for some time.
 
 ## Build, test, run
 
@@ -69,11 +79,16 @@ Build the image on **ai.matthewstevens.org** (never on a1), push to
 mkdir -p ~/master-control/data
 cp master-control-agent/docker-compose.master-control.yml ~/master-control/
 cp master-control-agent/master-control.env.example ~/master-control/master-control.env
-# populate NTFY_TOKEN + GREYNOISE_API_KEY from pass
+# populate NTFY_TOKEN + GREYNOISE_API_KEY + MC_LLM_KEY from pass
 cd ~/master-control && docker compose -f docker-compose.master-control.yml up -d
 docker logs -f master-control
 ```
 
-Compose hardening (already set): `cap_drop: ALL`, `no-new-privileges`, 256M/0.5cpu
+The boot banner prints `key=set` or `key=MISSING`, never the value. `MISSING`
+means the phrasing model will 401 and every line will be the template.
+
+Compose hardening (already set): `cap_drop: ALL`, `no-new-privileges`, 256M. No
+`cpus:` limit: the DSM kernel on a1 lacks the CPU CFS scheduler, so setting one
+makes `docker compose up` fail with "NanoCPUs can not be set".
 limits. Trip a priority-5 ntfy alert on `universal-exports` → MC speaks within ~2m;
 a priority-2 routine ping → silence.

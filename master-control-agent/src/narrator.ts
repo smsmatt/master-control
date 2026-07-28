@@ -97,6 +97,11 @@ export interface TickResult {
   spoken: number;
   swallowed: number;
   undelivered: number; // approved + recorded but the bridge would not accept it (retried next tick)
+  // Phrasing health. A tick can be perfectly "successful" on every count above
+  // while every line came from the template because the model is unreachable.
+  // That happened, for hours, invisibly. These two make it a number.
+  fellBack: number; // lines that used the deterministic template
+  llmUnreachable: number; // subset of fellBack where the model could not be reached
 }
 
 /** One poll → judge → narrate cycle. Returns counts for logging. */
@@ -108,6 +113,8 @@ export async function tick(): Promise<TickResult> {
   let spoken = 0;
   let swallowed = 0;
   let undelivered = 0;
+  let fellBack = 0;
+  let llmUnreachable = 0;
 
   for (const alert of fresh) {
     const decision = evaluate(alert);
@@ -139,7 +146,9 @@ export async function tick(): Promise<TickResult> {
         note = `GreyNoise confirms ${decision.ip} malicious`;
       }
     }
-    const line = await phrase(alert, note);
+    const { line, source: phraseSource } = await phrase(alert, note);
+    if (phraseSource !== "llm") fellBack++;
+    if (phraseSource === "unreachable") llmUnreachable++;
     const ok = await speak(line);
     // Durable ledger FIRST, independent of delivery: this is the "never lose a
     // narration" guarantee. A delivered line is also mirrored to Matrix by the
@@ -155,6 +164,7 @@ export async function tick(): Promise<TickResult> {
       ip: decision.ip,
       note,
       line,
+      phraseSource,
       delivered: ok,
     });
     if (ok) {
@@ -170,7 +180,7 @@ export async function tick(): Promise<TickResult> {
 
   saveSeen(seen);
   saveAnnounced(announced);
-  return { polled: alerts.length, fresh: fresh.length, spoken, swallowed, undelivered };
+  return { polled: alerts.length, fresh: fresh.length, spoken, swallowed, undelivered, fellBack, llmUnreachable };
 }
 
 /** Long-running daemon: tick every MC_INTERVAL_MS (default 120s). */
@@ -188,7 +198,14 @@ export async function daemon(): Promise<void> {
     try {
       const r = await tick();
       last = r;
-      if (r.spoken || r.fresh) log(`tick: polled=${r.polled} fresh=${r.fresh} spoken=${r.spoken} swallowed=${r.swallowed} undelivered=${r.undelivered}`);
+      if (r.spoken || r.fresh)
+        log(
+          `tick: polled=${r.polled} fresh=${r.fresh} spoken=${r.spoken} swallowed=${r.swallowed} ` +
+            `undelivered=${r.undelivered} fellBack=${r.fellBack} llmUnreachable=${r.llmUnreachable}`,
+        );
+      // A dead phrasing model is not a tick failure, so it never raised anything.
+      // Say it plainly, once per affected tick, at the level an operator reads.
+      if (r.llmUnreachable > 0) log(`WARN: phrasing model unreachable for ${r.llmUnreachable} line(s); speaking from templates`);
     } catch (err) {
       log(`tick error: ${String(err)}`);
     }

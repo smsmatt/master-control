@@ -11,7 +11,7 @@ import { phrase } from "./phrase.js";
 
 async function sessionBegin(): Promise<void> {
   // A synthetic "session start" event, phrased by the LLM (static fallback inside phrase()).
-  const line = await phrase(
+  const { line } = await phrase(
     {
       id: "session-begin",
       topic: "session",

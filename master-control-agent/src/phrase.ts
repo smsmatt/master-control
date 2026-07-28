@@ -13,8 +13,16 @@ import type { NtfyAlert } from "./gate.js";
 // and the default model name had gone stale behind the misleading name because
 // mtplx answers with whatever it has loaded rather than rejecting an unknown
 // model, so the config could drift without ever erroring.
-const LLM_URL = process.env.MC_LLM_URL ?? "http://ai.matthewstevens.org:8881";
-const LLM_MODEL = process.env.MC_LLM_MODEL ?? "qwen3.5-9b-mtplx";
+//
+// Read per call, not at module load, so the module stays testable — the same
+// idiom and the same reason as record.ts and control.ts.
+const LLM_URL = () => process.env.MC_LLM_URL ?? "http://ai.matthewstevens.org:8881";
+const LLM_MODEL = () => process.env.MC_LLM_MODEL ?? "qwen3.5-9b-mtplx";
+
+// MTPLX requires an API key (it returns 401 without one). Sent only when set, so
+// an unauthenticated endpoint still works — the conditional-header idiom from
+// ntfy.ts and greynoise.ts.
+const LLM_KEY = () => process.env.MC_LLM_KEY ?? "";
 
 const SYSTEM =
   "You are Master Control, a SanMarcSoft NOC operator. You are given ONE ops event that has ALREADY been judged worth announcing. " +
@@ -90,17 +98,40 @@ export function fallbackLine(alert: NtfyAlert, note?: string): string {
   return `Master Control. ${sev}, ${alert.topic}. ${what}.${tail} Out.`;
 }
 
-export async function phrase(alert: NtfyAlert, note?: string): Promise<string> {
+/**
+ * Which path produced the spoken line.
+ *   llm         — the model phrased it and the grounding guard passed it
+ *   rejected    — the model answered, but the line was empty or ungrounded
+ *   unreachable — the model could not be reached (network, timeout, non-2xx)
+ *
+ * `rejected` and `unreachable` both speak the template, and until this existed
+ * they were indistinguishable from each other AND from success. That is not a
+ * theoretical gap: MTPLX started requiring an API key, this module sent none,
+ * every call 401'd, and Master Control read template lines for as long as it took
+ * a human to notice, while every log line said `spoken=1 undelivered=0`. A dead
+ * dependency and a working guard must not look the same.
+ */
+export type PhraseSource = "llm" | "rejected" | "unreachable";
+
+export interface PhraseResult {
+  line: string;
+  source: PhraseSource;
+}
+
+export async function phrase(alert: NtfyAlert, note?: string): Promise<PhraseResult> {
   const event =
     `topic: ${alert.topic}\npriority: ${alert.priority}\n` +
     `title: ${alert.title}\nmessage: ${alert.message}` +
     (note ? `\nvalidation: ${note}` : "");
+  const key = LLM_KEY();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (key) headers.Authorization = `Bearer ${key}`;
   try {
-    const res = await fetch(`${LLM_URL}/v1/chat/completions`, {
+    const res = await fetch(`${LLM_URL()}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
-        model: LLM_MODEL,
+        model: LLM_MODEL(),
         max_tokens: 90,
         temperature: 0.3,
         messages: [
@@ -110,16 +141,16 @@ export async function phrase(alert: NtfyAlert, note?: string): Promise<string> {
       }),
       signal: AbortSignal.timeout(25_000),
     });
-    if (!res.ok) return fallbackLine(alert, note);
+    if (!res.ok) return { line: fallbackLine(alert, note), source: "unreachable" };
     const d = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const line = d.choices?.[0]?.message?.content?.trim();
     // Grounding source excludes the priority/topic header so the model cannot
     // smuggle the priority integer into prose; only title+message+note count.
-    const source = `${alert.title} ${alert.message} ${note ?? ""}`;
-    return line && line.length > 0 && numeralsGrounded(line, source)
-      ? line
-      : fallbackLine(alert, note);
+    const grounding = `${alert.title} ${alert.message} ${note ?? ""}`;
+    return line && line.length > 0 && numeralsGrounded(line, grounding)
+      ? { line, source: "llm" }
+      : { line: fallbackLine(alert, note), source: "rejected" };
   } catch {
-    return fallbackLine(alert, note);
+    return { line: fallbackLine(alert, note), source: "unreachable" };
   }
 }
