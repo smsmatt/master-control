@@ -39,3 +39,9 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+
+# Master Control agent — secrets, runtime data, build output
+master-control-agent/master-control.env
+master-control-agent/data/
+master-control-agent/dist/
+master-control-agent/node_modules/

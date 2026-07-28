@@ -28,6 +28,8 @@ export interface NarrationRecord {
   id: string; // ntfy alert id (or synthetic, e.g. "session-begin")
   topic: string;
   title: string;
+  message?: string; // source alert body — recorded so the quality monitor can ground numerals
+  priority?: number; // source ntfy priority — for severity-accuracy grading
   security: boolean;
   ip?: string;
   note?: string;
